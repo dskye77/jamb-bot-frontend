@@ -3,7 +3,7 @@
 //   VITE_API_URL=https://jamb-bot-production.up.railway.app   ← no port!
 //   VITE_DASHBOARD_TOKEN=your-secret-token
 
-const rawUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001'
+const rawUrl = import.meta.env.VITE_API_URL
 
 // Strip any explicit port when using https — Railway only exposes 443
 export const API_BASE = rawUrl.startsWith('https://')
