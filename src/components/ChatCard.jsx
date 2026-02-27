@@ -11,7 +11,7 @@ import {
 import Card from "./Card.jsx";
 import Pill from "./Pill.jsx";
 import ProgressBar from "./ProgressBar.jsx";
-import { NEON, BAR_COLORS, shortId } from "../utils.js";
+import { NEON, BAR_COLORS, shortId, timeSince } from "../utils.js";
 
 const btnStyle = (color, small = false) => ({
   background: "transparent",
@@ -45,7 +45,84 @@ const inputStyle = {
   fontSize: 13,
 };
 
-export default function ChatCard({ chat, onAction }) {
+function ScoreList({ scores, showChart = true }) {
+  return (
+    <>
+      {scores.slice(0, 10).map((s, i) => (
+        <div
+          key={s.uid || s.name}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 10,
+            padding: "5px 0",
+            borderBottom: "1px solid rgba(255,255,255,0.04)",
+          }}
+        >
+          <span
+            style={{
+              width: 20,
+              color:
+                i === 0
+                  ? "#ffd93d"
+                  : i === 1
+                    ? "#aaa"
+                    : i === 2
+                      ? "#cd7f32"
+                      : "#555",
+              fontSize: 12,
+              fontWeight: 700,
+              textAlign: "center",
+            }}
+          >
+            {i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : i + 1}
+          </span>
+          <span style={{ flex: 1, fontSize: 13, color: "#ccc" }}>{s.name}</span>
+          <span
+            style={{
+              fontFamily: "monospace",
+              fontWeight: 700,
+              color: NEON[i % NEON.length],
+            }}
+          >
+            {s.score}
+          </span>
+        </div>
+      ))}
+
+      {showChart && scores.length > 1 && (
+        <div style={{ marginTop: 16, height: 120 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart
+              data={scores.slice(0, 8)}
+              margin={{ top: 0, right: 0, bottom: 0, left: -20 }}
+            >
+              <XAxis dataKey="name" tick={{ fontSize: 10, fill: "#666" }} />
+              <YAxis tick={{ fontSize: 10, fill: "#666" }} />
+              <Tooltip
+                contentStyle={{
+                  background: "#111",
+                  border: "1px solid #333",
+                  borderRadius: 8,
+                  fontSize: 12,
+                }}
+                labelStyle={{ color: "#aaa" }}
+                itemStyle={{ color: "#00ff87" }}
+              />
+              <Bar dataKey="score" radius={[4, 4, 0, 0]}>
+                {scores.slice(0, 8).map((_, i) => (
+                  <Cell key={i} fill={BAR_COLORS[i % BAR_COLORS.length]} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </>
+  );
+}
+
+export default function ChatCard({ chat, lastResult, onAction }) {
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
   const [cfg, setCfg] = useState({
@@ -54,7 +131,11 @@ export default function ChatCard({ chat, onAction }) {
     maxQuestionsPerQuiz: 50,
   });
 
-  const topScore = chat.scores[0];
+  const topScore = chat.scores?.[0];
+
+  // What scores to show: live scores if active, otherwise last cached result
+  const hasLiveScores = chat.isActive && chat.scores?.length > 0;
+  const hasLastResult = !chat.isActive && lastResult?.scores?.length > 0;
 
   return (
     <Card
@@ -109,6 +190,7 @@ export default function ChatCard({ chat, onAction }) {
             {chat.isActive && <Pill color="#00ff87">LIVE</Pill>}
           </div>
 
+          {/* ── Active quiz info ── */}
           {chat.isActive && (
             <>
               <div
@@ -135,6 +217,30 @@ export default function ChatCard({ chat, onAction }) {
                 </div>
               )}
             </>
+          )}
+
+          {/* ── Last quiz summary (shown when inactive and we have cached data) ── */}
+          {!chat.isActive && hasLastResult && (
+            <div style={{ marginTop: 2 }}>
+              <div
+                style={{
+                  fontSize: 13,
+                  fontWeight: 700,
+                  color: "#777",
+                  marginBottom: 2,
+                }}
+              >
+                {(lastResult.subject || "").toUpperCase()}{" "}
+                {lastResult.year && `— ${lastResult.year}`}
+              </div>
+              <div style={{ fontSize: 11, color: "#444" }}>
+                Last quiz · 🥇 {lastResult.scores[0].name} (
+                {lastResult.scores[0].score} pts)
+                {lastResult.savedAt
+                  ? ` · ${timeSince(lastResult.savedAt)}`
+                  : ""}
+              </div>
+            </div>
           )}
         </div>
 
@@ -179,8 +285,26 @@ export default function ChatCard({ chat, onAction }) {
         </div>
       </div>
 
-      {/* ── Expanded: Scoreboard ── */}
-      {expanded && chat.scores.length > 0 && (
+      {/* ── Expanded: Live scoreboard ── */}
+      {expanded && hasLiveScores && (
+        <div style={{ marginTop: 16 }}>
+          <div
+            style={{
+              fontSize: 11,
+              color: "#00ff87",
+              textTransform: "uppercase",
+              letterSpacing: 1,
+              marginBottom: 8,
+            }}
+          >
+            Live Scoreboard
+          </div>
+          <ScoreList scores={chat.scores} />
+        </div>
+      )}
+
+      {/* ── Expanded: Last quiz scoreboard (inactive) ── */}
+      {expanded && !chat.isActive && hasLastResult && (
         <div style={{ marginTop: 16 }}>
           <div
             style={{
@@ -189,82 +313,34 @@ export default function ChatCard({ chat, onAction }) {
               textTransform: "uppercase",
               letterSpacing: 1,
               marginBottom: 8,
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
             }}
           >
-            Scoreboard
-          </div>
-          {chat.scores.slice(0, 10).map((s, i) => (
-            <div
-              key={s.uid}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 10,
-                padding: "5px 0",
-                borderBottom: "1px solid rgba(255,255,255,0.04)",
-              }}
+            Last Quiz Results
+            <span
+              style={{ color: "#333", fontWeight: 400, textTransform: "none" }}
             >
-              <span
-                style={{
-                  width: 20,
-                  color:
-                    i === 0
-                      ? "#ffd93d"
-                      : i === 1
-                        ? "#aaa"
-                        : i === 2
-                          ? "#cd7f32"
-                          : "#555",
-                  fontSize: 12,
-                  fontWeight: 700,
-                  textAlign: "center",
-                }}
-              >
-                {i + 1}
-              </span>
-              <span style={{ flex: 1, fontSize: 13, color: "#ccc" }}>
-                {s.name}
-              </span>
-              <span
-                style={{
-                  fontFamily: "monospace",
-                  fontWeight: 700,
-                  color: NEON[i % NEON.length],
-                }}
-              >
-                {s.score}
-              </span>
-            </div>
-          ))}
+              {lastResult.subject?.toUpperCase()} {lastResult.year}
+              {lastResult.savedAt ? ` · ${timeSince(lastResult.savedAt)}` : ""}
+            </span>
+          </div>
+          <ScoreList scores={lastResult.scores} />
+        </div>
+      )}
 
-          {chat.scores.length > 1 && (
-            <div style={{ marginTop: 16, height: 120 }}>
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart
-                  data={chat.scores.slice(0, 8)}
-                  margin={{ top: 0, right: 0, bottom: 0, left: -20 }}
-                >
-                  <XAxis dataKey="name" tick={{ fontSize: 10, fill: "#666" }} />
-                  <YAxis tick={{ fontSize: 10, fill: "#666" }} />
-                  <Tooltip
-                    contentStyle={{
-                      background: "#111",
-                      border: "1px solid #333",
-                      borderRadius: 8,
-                      fontSize: 12,
-                    }}
-                    labelStyle={{ color: "#aaa" }}
-                    itemStyle={{ color: "#00ff87" }}
-                  />
-                  <Bar dataKey="score" radius={[4, 4, 0, 0]}>
-                    {chat.scores.slice(0, 8).map((_, i) => (
-                      <Cell key={i} fill={BAR_COLORS[i % BAR_COLORS.length]} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          )}
+      {/* ── Expanded: No scores at all ── */}
+      {expanded && !hasLiveScores && !hasLastResult && (
+        <div
+          style={{
+            marginTop: 16,
+            fontSize: 12,
+            color: "#444",
+            fontStyle: "italic",
+          }}
+        >
+          No scoreboard data yet for this chat.
         </div>
       )}
 

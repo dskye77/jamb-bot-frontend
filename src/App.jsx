@@ -28,6 +28,23 @@ export default function App() {
   const [toasts, setToasts] = useState([]);
   const [filter, setFilter] = useState("all");
 
+  // Persists the last known scoreboard for every chat across quiz end / bot crash.
+  // Shape: { [chatId]: { scores, subject, year, endedAt } }
+  const [lastScores, setLastScores] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("jamb_last_scores") || "{}");
+    } catch {
+      return {};
+    }
+  });
+
+  const saveLastScores = useCallback((updated) => {
+    setLastScores(updated);
+    try {
+      localStorage.setItem("jamb_last_scores", JSON.stringify(updated));
+    } catch {}
+  }, []);
+
   // ── Toast helper ────────────────────────────────────────────────
   const toast = useCallback((text, type = "ok") => {
     const id = Date.now();
@@ -36,7 +53,52 @@ export default function App() {
   }, []);
 
   // ── WebSocket ────────────────────────────────────────────────────
-  const handleSnapshot = useCallback((data) => setSnapshot(data), []);
+  const handleSnapshot = useCallback((data) => {
+    setSnapshot(data);
+
+    // Whenever we see a chat with scores (active or not), save them.
+    // This means as soon as the bot sends us live scores, we cache them.
+    // When the quiz ends and scores disappear from the snapshot, we still
+    // have them here.
+    setLastScores((prev) => {
+      let changed = false;
+      const next = { ...prev };
+
+      for (const chat of data.chats || []) {
+        if (chat.scores?.length > 0) {
+          const existing = prev[chat.chatId];
+          const incomingTop = chat.scores[0];
+          const existingTop = existing?.scores?.[0];
+
+          // Only update if scores actually changed (avoid unnecessary writes)
+          if (
+            !existing ||
+            existing.subject !== chat.subject ||
+            existing.year !== chat.year ||
+            incomingTop?.score !== existingTop?.score ||
+            chat.scores.length !== existing.scores?.length
+          ) {
+            next[chat.chatId] = {
+              scores: chat.scores,
+              subject: chat.subject,
+              year: chat.year,
+              savedAt: Date.now(),
+            };
+            changed = true;
+          }
+        }
+      }
+
+      if (changed) {
+        try {
+          localStorage.setItem("jamb_last_scores", JSON.stringify(next));
+        } catch {}
+        return next;
+      }
+      return prev;
+    });
+  }, []);
+
   const handleEvent = useCallback(
     (msg) => setEvents((ev) => [...ev.slice(-99), msg]),
     [],
@@ -48,7 +110,7 @@ export default function App() {
     const poll = async () => {
       try {
         const data = await api("/api/snapshot");
-        if (!data.error) setSnapshot(data);
+        if (!data.error) handleSnapshot(data);
       } catch (err) {
         console.log(err);
       }
@@ -56,7 +118,7 @@ export default function App() {
     poll();
     const id = setInterval(poll, 5000);
     return () => clearInterval(id);
-  }, []);
+  }, [handleSnapshot]);
 
   // ── Events polling fallback ──────────────────────────────────────
   useEffect(() => {
@@ -333,6 +395,7 @@ export default function App() {
                     <ChatCard
                       key={chat.chatId}
                       chat={chat}
+                      lastResult={lastScores[chat.chatId] || null}
                       onAction={handleAction}
                     />
                   ))}
